@@ -1,0 +1,208 @@
+use druid::Target;
+use druid::UnitPoint;
+use druid::WindowSizePolicy;
+use druid::commands::CLOSE_WINDOW;
+use druid::widget::Controller;
+use druid::widget::Flex;
+use druid::widget::RadioGroup;
+use druid::widget::WidgetExt;
+use druid::widget::prelude::*;
+use druid::{Point, WindowConfig};
+use druid::{WindowId, WindowLevel};
+
+type DropFn<T> = Box<dyn Fn(&T, &Env) -> Box<dyn Widget<T>>>;
+
+pub struct Select<T> {
+    drop: DropFn<T>,
+    window: Option<WindowId>,
+}
+
+crate::selectors! {
+    SELECT_SHOW,
+    SELECT_HIDE,
+    SELECT_CLOSED,
+    FOCUS_PARENT,
+}
+
+impl Select<String> {
+    // pub fn new<W: 'static + Widget<T>, DW: Widget<T> + 'static>(
+    pub fn new<W: 'static + Widget<String>>(
+        header: W,
+        // make_drop: impl Fn(&T, &Env) -> DW + 'static,
+    ) -> impl Widget<String> {
+        let places: Vec<(&'static str, String)> = vec!["England", "San Tropez", "Antarctica"]
+            .into_iter()
+            .map(|item| (item, item.to_owned()))
+            .collect();
+
+        // padding for putting header in separate WidgetPod
+        // because notifications from same WidgetPod are not sent
+        header.padding(0.).controller(Select {
+            drop: Box::new(move |_, _| {
+                Flex::column()
+                    .with_child(RadioGroup::row(places.clone()).align_vertical(UnitPoint::CENTER))
+                    .boxed()
+            }),
+            window: None,
+        })
+    }
+
+    fn show_dropdown(&mut self, data: &mut String, env: &Env, ctx: &mut EventCtx) {
+        let widget = (self.drop)(data, env);
+
+        let size = ctx.size();
+        let widget_screen_coordinates = ctx.to_screen(Point::new(size.width, size.height));
+        let final_coordinates = Point {
+            x: widget_screen_coordinates.x - size.width,
+            y: widget_screen_coordinates.y,
+        };
+
+        // println!("size: {}", size);
+        // println!("widget_screen_coordinates: {}", widget_screen_coordinates);
+        // println!("final_coordinates: {}", final_coordinates);
+
+        let parent_id = ctx.widget_id();
+
+        self.window = Some(
+            ctx.new_sub_window(
+                WindowConfig::default()
+                    .set_level(WindowLevel::DropDown(ctx.window().clone()))
+                    .set_position(final_coordinates)
+                    .window_size_policy(WindowSizePolicy::Content)
+                    .resizable(false)
+                    .show_titlebar(false),
+                widget.controller(DropedCtrl { parent: parent_id }),
+                data.clone(),
+                env.clone(),
+            ),
+        );
+
+        ctx.set_active(true);
+    }
+}
+
+struct DropedCtrl {
+    parent: WidgetId,
+}
+
+// Dropdown popup
+impl<T: Data, W: Widget<T>> Controller<T, W> for DropedCtrl {
+    fn event(&mut self, child: &mut W, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
+        if let Event::MouseMove(_x) = event {
+            // ctx.submit_command(DROPDOWN_CLOSED.to(self.parent));
+        } else {
+            println!("Dropdown content received event {:?}", event);
+        }
+
+        if let Event::WindowDisconnected = event {
+            ctx.submit_command(SELECT_CLOSED.to(self.parent));
+        }
+
+        if let Event::MouseUp(_mouse_event) = event {
+            ctx.submit_command(FOCUS_PARENT.to(self.parent));
+            // self.parent
+            // println!("MouseUp: {:?}", mouse_event);
+        }
+
+        child.event(ctx, event, data, env);
+    }
+
+    fn lifecycle(
+        &mut self,
+        child: &mut W,
+        ctx: &mut LifeCycleCtx,
+        event: &LifeCycle,
+        data: &T,
+        env: &Env,
+    ) {
+        // println!("event: {:?}", event);
+
+        println!("Dropdown content received lifecycle event: {:?}", event);
+
+        // pass the lifecycle event down to the child widget !
+        child.lifecycle(ctx, event, data, env);
+    }
+}
+
+// Dropdown container
+impl<W: Widget<String>> Controller<String, W> for Select<String> {
+    fn event(
+        &mut self,
+        child: &mut W,
+        ctx: &mut EventCtx,
+        event: &Event,
+        data: &mut String,
+        env: &Env,
+    ) {
+        match event {
+            Event::Notification(n) if n.is(SELECT_SHOW) && self.window.is_none() => {
+                println!("notf DROPDOWN_SHOW");
+                self.show_dropdown(data, env, ctx);
+                ctx.set_handled();
+            }
+            Event::Notification(cmd) if cmd.is(SELECT_HIDE) => {
+                println!("notf DROPDOWN_HIDE");
+                if let Some(w) = self.window {
+                    ctx.submit_command(CLOSE_WINDOW.to(w));
+                }
+                ctx.set_handled();
+            }
+
+            // we recieve global mouse downs when widget is_active
+            // close on any outside mouse click
+            Event::MouseDown(ev) if ctx.is_active() && !ctx.size().to_rect().contains(ev.pos) => {
+                println!("mousedown DROPDOWN_HIDE");
+                if let Some(w) = self.window {
+                    ctx.submit_command(CLOSE_WINDOW.to(w));
+                }
+            }
+            Event::Command(cmd) if cmd.is(SELECT_SHOW) && self.window.is_none() => {
+                println!("cmd DROPDOWN_SHOW");
+                self.show_dropdown(data, env, ctx);
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(SELECT_CLOSED) => {
+                println!("cmd HELOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
+                println!("cmd {:?}", cmd);
+
+                ctx.set_active(false);
+                self.window = None;
+                let inner_cmd = cmd.clone().to(Target::Global);
+                // send DROP_END to header
+                child.event(ctx, &Event::Command(inner_cmd), data, env);
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(SELECT_HIDE) => {
+                println!("cmd DROPDOWN_HIDE");
+                if let Some(w) = self.window {
+                    ctx.submit_command(CLOSE_WINDOW.to(w));
+                }
+                ctx.set_handled();
+            }
+            // Event::Command(cmd) if cmd.is(FOCUS_PARENT) => {
+            //     println!("cmd FOCUS_PARENT");
+
+            //     ctx.request_focus();
+
+            //     // if let Some(w) = self.window {
+            //     //     ctx.submit_command(CLOSE_WINDOW.to(w));
+            //     // }
+            //     // ctx.set_handled();
+            // }
+            _ => {}
+        }
+        child.event(ctx, event, data, env);
+    }
+
+    fn lifecycle(
+        &mut self,
+        child: &mut W,
+        ctx: &mut LifeCycleCtx,
+        event: &LifeCycle,
+        data: &String,
+        env: &Env,
+    ) {
+        // pass the lifecycle event down to the child widget !
+        child.lifecycle(ctx, event, data, env)
+    }
+}
