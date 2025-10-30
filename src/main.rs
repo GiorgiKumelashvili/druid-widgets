@@ -1,8 +1,8 @@
 mod widgets;
-
 use druid::widget::{Button, Container, Either, Flex, Label, SizedBox, ZStack};
 use druid::{
-    AppLauncher, Color, Data, Lens, PlatformError, Point, Size, Widget, WidgetExt, WindowDesc,
+    AppLauncher, Color, Data, EventCtx, Lens, PlatformError, Point, Size, Widget, WidgetExt,
+    WindowDesc,
 };
 
 use crate::widgets::advanced_button::AdvancedButton;
@@ -116,15 +116,37 @@ fn ui_builder() -> impl Widget<InitialState> {
             )
             .main_axis_alignment(druid::widget::MainAxisAlignment::Center),
     )
-    .background(Color::rgb8(0x80, 0x80, 0x80))
+    .background(Color::GREEN)
+    // .background(Color::rgb8(0x80, 0x80, 0x80))
     .border(Color::BLACK, 2.0)
     .rounded(5.0)
     .fix_size(300.0, 200.0)
     .center();
 
+    let popup2 = Container::new(
+        Flex::column()
+            .with_child(Label::new("This is a popup!").with_text_size(24.0))
+            .with_spacer(20.0)
+            .with_child(
+                Button::new("Close").on_click(|_ctx, data: &mut InitialState, _env| {
+                    data.show_popup = false;
+                }),
+            )
+            .main_axis_alignment(druid::widget::MainAxisAlignment::Center)
+            .background(Color::MAROON),
+    )
+    .background(Color::GREEN)
+    // .background(Color::rgb8(0x80, 0x80, 0x80))
+    .border(Color::BLACK, 2.0)
+    .rounded(5.0)
+    .center()
+    .fix_width(200.)
+    .fix_height(200.);
+
     let conditional_popup = Either::new(
         |data: &InitialState, _env| data.show_popup,
-        popup,
+        // Button::new("hi"),
+        popup2,
         SizedBox::empty(),
     );
 
