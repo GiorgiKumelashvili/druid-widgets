@@ -158,7 +158,7 @@ fn main() {
 
     let window = WindowDesc::new(main_widget)
         .window_size((600.0, 400.0))
-        .title("");
+        .title("Macos Tricks");
 
     AppLauncher::with_window(window)
         .launch(AppState::default())
